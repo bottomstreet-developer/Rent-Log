@@ -79,11 +79,12 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
       if (offering != null) {
         for (final package in offering.availablePackages) {
           final p = package.storeProduct;
-          if (p.identifier == _monthlyProductId) monthly = p;
-          if (p.identifier == _yearlyProductId) yearly = p;
+          if (p.identifier == _monthlyProductId || p.identifier.startsWith(_monthlyProductId)) monthly = p;
+          if (p.identifier == _yearlyProductId || p.identifier.startsWith(_yearlyProductId)) yearly = p;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+    }
 
     // Pass 2: direct product fetch
     if (monthly == null || yearly == null) {
@@ -92,13 +93,14 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
           [_monthlyProductId, _yearlyProductId],
         );
         for (final p in products) {
-          if (p.identifier == _monthlyProductId) monthly ??= p;
-          if (p.identifier == _yearlyProductId) yearly ??= p;
+          if (p.identifier == _monthlyProductId || p.identifier.startsWith(_monthlyProductId)) monthly ??= p;
+          if (p.identifier == _yearlyProductId || p.identifier.startsWith(_yearlyProductId)) yearly ??= p;
         }
-      } catch (_) {}
+      } catch (e) {
+      }
     }
 
-    // Pass 3: retry after delay if still empty
+    // Pass 3: retry after delay
     if (monthly == null || yearly == null) {
       await Future.delayed(const Duration(seconds: 2));
       if (!mounted) return;
@@ -107,10 +109,11 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
           [_monthlyProductId, _yearlyProductId],
         );
         for (final p in products) {
-          if (p.identifier == _monthlyProductId) monthly ??= p;
-          if (p.identifier == _yearlyProductId) yearly ??= p;
+          if (p.identifier == _monthlyProductId || p.identifier.startsWith(_monthlyProductId)) monthly ??= p;
+          if (p.identifier == _yearlyProductId || p.identifier.startsWith(_yearlyProductId)) yearly ??= p;
         }
-      } catch (_) {}
+      } catch (e) {
+      }
     }
 
     if (!mounted) return;
