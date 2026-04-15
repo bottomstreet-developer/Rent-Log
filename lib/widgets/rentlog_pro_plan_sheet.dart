@@ -66,12 +66,16 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
   }
 
   Future<void> _loadOfferings() async {
+    if (!mounted) return;
     setState(() => _pricesLoading = true);
+
+    StoreProduct? monthly;
+    StoreProduct? yearly;
+
+    // Pass 1: try configured offering
     try {
       final offerings = await Purchases.getOfferings();
       final offering = offerings.current;
-      StoreProduct? monthly;
-      StoreProduct? yearly;
       if (offering != null) {
         for (final package in offering.availablePackages) {
           final p = package.storeProduct;
@@ -79,20 +83,33 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
           if (p.identifier == _yearlyProductId) yearly = p;
         }
       }
-      if (!mounted) return;
-      if (monthly != null && yearly != null) {
-        final m = monthly;
-        final y = yearly;
-        setState(() {
-          _pricesLoading = false;
-          _monthlySubtitle = '${m.priceString}/mo';
-          _yearlySubtitle = '${y.priceString}/yr';
-          _savePct = rentlogProPlanSheetSavingsPct(m, y);
-        });
-      } else {
-        _applyFallback();
-      }
-    } catch (_) {
+    } catch (_) {}
+
+    // Pass 2: direct product fetch (Android fallback for unconfigured offerings)
+    if (monthly == null || yearly == null) {
+      try {
+        final products = await Purchases.getProducts(
+          [_monthlyProductId, _yearlyProductId],
+        );
+        for (final p in products) {
+          if (p.identifier == _monthlyProductId) monthly ??= p;
+          if (p.identifier == _yearlyProductId) yearly ??= p;
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
+    if (monthly != null && yearly != null) {
+      final m = monthly!;
+      final y = yearly!;
+      setState(() {
+        _pricesLoading = false;
+        _monthlySubtitle = '${m.priceString}/mo';
+        _yearlySubtitle = '${y.priceString}/yr';
+        _savePct = rentlogProPlanSheetSavingsPct(m, y);
+      });
+    } else {
       _applyFallback();
     }
   }
@@ -101,9 +118,9 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
     if (!mounted) return;
     setState(() {
       _pricesLoading = false;
-      _monthlySubtitle = '...';
-      _yearlySubtitle = '...';
-      _savePct = null;
+      _monthlySubtitle = '\$2.99/mo';
+      _yearlySubtitle = '\$19.99/yr';
+      _savePct = 44;
     });
   }
 
@@ -349,9 +366,6 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
                           ? await PurchaseService.purchaseYearly() == true
                           : await PurchaseService.purchaseMonthly() == true;
                       if (unlocked) {
-                        if (widget.isParentMounted()) {
-                          await widget.onRestoreComplete(true);
-                        }
                         if (!context.mounted) return;
                         Navigator.pop(context, true);
                         if (widget.isParentMounted()) {

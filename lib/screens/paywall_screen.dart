@@ -26,12 +26,16 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   Future<void> _loadOfferings() async {
+    if (!mounted) return;
     setState(() => _pricesLoading = true);
+
+    StoreProduct? monthly;
+    StoreProduct? yearly;
+
+    // Pass 1: try configured offering
     try {
       final offerings = await Purchases.getOfferings();
       final offering = offerings.current;
-      StoreProduct? monthly;
-      StoreProduct? yearly;
       if (offering != null) {
         for (final package in offering.availablePackages) {
           final p = package.storeProduct;
@@ -39,22 +43,34 @@ class _PaywallScreenState extends State<PaywallScreen> {
           if (p.identifier == _yearlyProductId) yearly = p;
         }
       }
-      if (!mounted) return;
-      if (monthly != null && yearly != null) {
-        final m = monthly;
-        final y = yearly;
-        final save = _savingsPercent(m, y);
-        setState(() {
-          _pricesLoading = false;
-          _monthlyButtonText = 'Monthly: ${m.priceString}/mo';
-          _yearlyButtonText = save != null
-              ? 'Yearly: ${y.priceString}/yr (save $save%)'
-              : 'Yearly: ${y.priceString}/yr';
-        });
-      } else {
-        _applyPriceFallback();
-      }
-    } catch (_) {
+    } catch (_) {}
+
+    // Pass 2: direct product fetch (Android fallback)
+    if (monthly == null || yearly == null) {
+      try {
+        final products = await Purchases.getProducts(
+          [_monthlyProductId, _yearlyProductId],
+        );
+        for (final p in products) {
+          if (p.identifier == _monthlyProductId) monthly ??= p;
+          if (p.identifier == _yearlyProductId) yearly ??= p;
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+    if (monthly != null && yearly != null) {
+      final m = monthly!;
+      final y = yearly!;
+      final save = _savingsPercent(m, y);
+      setState(() {
+        _pricesLoading = false;
+        _monthlyButtonText = 'Monthly: ${m.priceString}/mo';
+        _yearlyButtonText = save != null
+            ? 'Yearly: ${y.priceString}/yr (save $save%)'
+            : 'Yearly: ${y.priceString}/yr';
+      });
+    } else {
       _applyPriceFallback();
     }
   }

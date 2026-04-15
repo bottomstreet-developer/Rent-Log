@@ -22,6 +22,7 @@ class PaymentsScreen extends StatefulWidget {
 class _PaymentsScreenState extends State<PaymentsScreen> {
   List<Lease> leases = [];
   final Map<int, List<RentPayment>> paymentsByLease = {};
+  bool _isProUser = false;
 
   String _formatPaymentMethod(String raw) {
     return raw
@@ -42,14 +43,17 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
 
   Future<void> _load() async {
     final leaseList = await DatabaseHelper.instance.getLeases();
+    final isPro = await PurchaseService.isProUser() || PurchaseService.isDebugProEnabled;
     final grouped = <int, List<RentPayment>>{};
     for (final lease in leaseList) {
       final id = lease.id;
       if (id == null) continue;
-      grouped[id] = await DatabaseHelper.instance.getPayments(id);
+      final all = await DatabaseHelper.instance.getPayments(id);
+      grouped[id] = isPro ? all : all.take(3).toList();
     }
     if (!mounted) return;
     setState(() {
+      _isProUser = isPro;
       leases = leaseList;
       paymentsByLease
         ..clear()
@@ -536,6 +540,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                         ...leasePayments.map(
                                           (p) => _tileSimple(p, currencySymbol),
                                         ),
+                                      if (!_isProUser)
+                                        _proHistoryBanner(),
                                       const SizedBox(height: 12),
                                     ],
                                   );
@@ -563,6 +569,74 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       ),
     );
       },
+    );
+  }
+
+  Widget _proHistoryBanner() {
+    return GestureDetector(
+      onTap: () {
+        showRentlogProUpgradeBottomSheet(
+          context,
+          isParentMounted: () => mounted,
+          ctaColor: const Color(0xFF00C48C),
+          onUnlocked: () async {
+            if (mounted) {
+              setState(() => _isProUser = true);
+              await _load();
+            }
+          },
+          onRestoreComplete: (restoredPro) async {
+            if (restoredPro && mounted) {
+              setState(() => _isProUser = true);
+              await _load();
+            }
+          },
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8F9FA),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE8ECF0)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1A1A),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.lock_outline, size: 16, color: Colors.white),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Full history is a Pro feature',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1A1A),
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Upgrade to see all past payments',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF8A8A8A)),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, size: 18, color: Color(0xFFCCCCCC)),
+          ],
+        ),
+      ),
     );
   }
 

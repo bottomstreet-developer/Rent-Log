@@ -112,11 +112,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       onUnlocked: () async {
         if (!mounted) return;
         setState(() {
-          _proFuture = PurchaseService.isProUser();
+          _proFuture = Future.value(true);
         });
       },
       onRestoreComplete: (restoredPro) async {
-        if (restoredPro && mounted) setState(() {});
+        if (!mounted) return;
+        if (restoredPro) {
+          setState(() {
+            _proFuture = Future.value(true);
+          });
+        }
       },
     );
   }

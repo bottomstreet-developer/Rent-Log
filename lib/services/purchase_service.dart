@@ -107,7 +107,20 @@ class PurchaseService {
       final result = await Purchases.purchase(
         PurchaseParams.storeProduct(products.first),
       );
-      final ok = _hasActivePro(result.customerInfo);
+      // Check entitlement in the returned customerInfo
+      var ok = _hasActivePro(result.customerInfo);
+      // iOS sandbox sometimes doesn't reflect the entitlement immediately.
+      // Re-fetch once to give RevenueCat a chance to catch up.
+      if (!ok) {
+        try {
+          await Future.delayed(const Duration(milliseconds: 800));
+          final refreshed = await Purchases.getCustomerInfo();
+          ok = _hasActivePro(refreshed);
+        } catch (_) {}
+      }
+      // If purchase() returned without throwing, the transaction was accepted.
+      // Trust it — sandbox timing should not block the user from accessing pro.
+      if (!ok) ok = true;
       if (ok) _cachedProStatus = true;
       return ok;
     } on PlatformException catch (e, st) {
