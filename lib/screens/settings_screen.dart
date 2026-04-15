@@ -800,7 +800,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           value: PurchaseService.isDebugProEnabled,
                           onChanged: (_) {
                             PurchaseService.toggleDebugPro();
-                            setState(() {});
+                            setState(() {
+                              _proFuture = PurchaseService.isDebugProEnabled
+                                  ? Future.value(true)
+                                  : PurchaseService.isProUser();
+                            });
                           },
                           activeColor: const Color(0xFF00C48C),
                         ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import '../main.dart';
 import 'add_payment_screen.dart';
 import '../services/database_helper.dart';
 import '../services/pdf_service.dart';
@@ -19,9 +20,10 @@ class PaymentsScreen extends StatefulWidget {
   State<PaymentsScreen> createState() => _PaymentsScreenState();
 }
 
-class _PaymentsScreenState extends State<PaymentsScreen> {
+class _PaymentsScreenState extends State<PaymentsScreen> with RouteAware {
   List<Lease> leases = [];
   final Map<int, List<RentPayment>> paymentsByLease = {};
+  final Map<int, int> totalPaymentCount = {};
   bool _isProUser = false;
 
   String _formatPaymentMethod(String raw) {
@@ -39,6 +41,28 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   void initState() {
     super.initState();
     _load();
+    rentLogTabNotifier.addListener(_onTabChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic>) {
+      rentLogRouteObserver.unsubscribe(this);
+      rentLogRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    _load();
+  }
+
+  void _onTabChanged() {
+    if (rentLogTabNotifier.value == 1 && mounted) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -49,7 +73,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       final id = lease.id;
       if (id == null) continue;
       final all = await DatabaseHelper.instance.getPayments(id);
-      grouped[id] = isPro ? all : all.take(3).toList();
+      grouped[id] = all.take(3).toList();
+      totalPaymentCount[id] = all.length;
     }
     if (!mounted) return;
     setState(() {
@@ -382,6 +407,13 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 
   @override
+  void dispose() {
+    rentLogRouteObserver.unsubscribe(this);
+    rentLogTabNotifier.removeListener(_onTabChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<String>(
       valueListenable: currencyNotifier,
@@ -540,8 +572,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                         ...leasePayments.map(
                                           (p) => _tileSimple(p, currencySymbol),
                                         ),
-                                      if (!_isProUser)
-                                        _proHistoryBanner(),
+                                      _viewAllButton(lease, currencySymbol),
                                       const SizedBox(height: 12),
                                     ],
                                   );
@@ -572,68 +603,70 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     );
   }
 
-  Widget _proHistoryBanner() {
+  Widget _viewAllButton(Lease lease, String currencySymbol) {
+    final id = lease.id!;
+    final total = totalPaymentCount[id] ?? 0;
+    final shown = paymentsByLease[id]?.length ?? 0;
+    if (total <= shown) return const SizedBox.shrink();
     return GestureDetector(
-      onTap: () {
-        showRentlogProUpgradeBottomSheet(
-          context,
-          isParentMounted: () => mounted,
-          ctaColor: const Color(0xFF00C48C),
-          onUnlocked: () async {
-            if (mounted) {
-              setState(() => _isProUser = true);
-              await _load();
-            }
-          },
-          onRestoreComplete: (restoredPro) async {
-            if (restoredPro && mounted) {
-              setState(() => _isProUser = true);
-              await _load();
-            }
-          },
-        );
+      onTap: () async {
+        final isPro = await PurchaseService.isProUser() || PurchaseService.isDebugProEnabled;
+        if (!mounted) return;
+        if (isPro) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => _FullPaymentHistoryScreen(
+                lease: lease,
+                currencySymbol: currencySymbol,
+              ),
+            ),
+          ).then((_) => _load());
+        } else {
+          showRentlogProUpgradeBottomSheet(
+            context,
+            isParentMounted: () => mounted,
+            ctaColor: const Color(0xFF00C48C),
+            onUnlocked: () async {
+              if (mounted) {
+                setState(() => _isProUser = true);
+                await _load();
+              }
+            },
+            onRestoreComplete: (restoredPro) async {
+              if (restoredPro && mounted) {
+                setState(() => _isProUser = true);
+                await _load();
+              }
+            },
+          );
+        }
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8F9FA),
+          color: const Color(0xFF1A1A1A),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE8ECF0)),
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A1A1A),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.lock_outline, size: 16, color: Colors.white),
-            ),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Full history is a Pro feature',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1A1A1A),
-                    ),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Upgrade to see all past payments',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF8A8A8A)),
-                  ),
-                ],
+            Text(
+              _isProUser
+                  ? 'View all $total payments'
+                  : 'Full history is a Pro feature',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
-            const Icon(Icons.chevron_right, size: 18, color: Color(0xFFCCCCCC)),
+            Icon(
+              _isProUser ? Icons.arrow_forward : Icons.lock_outline,
+              size: 16,
+              color: Colors.white,
+            ),
           ],
         ),
       ),
@@ -691,6 +724,141 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _FullPaymentHistoryScreen extends StatefulWidget {
+  final Lease lease;
+  final String currencySymbol;
+
+  const _FullPaymentHistoryScreen({
+    required this.lease,
+    required this.currencySymbol,
+  });
+
+  @override
+  State<_FullPaymentHistoryScreen> createState() =>
+      _FullPaymentHistoryScreenState();
+}
+
+class _FullPaymentHistoryScreenState
+    extends State<_FullPaymentHistoryScreen> {
+  List<RentPayment> _payments = [];
+  bool _loading = true;
+
+  String _formatPaymentMethod(String raw) {
+    return raw
+        .split('_')
+        .map(
+          (word) => word.isEmpty
+              ? word
+              : '${word[0].toUpperCase()}${word.substring(1)}',
+        )
+        .join(' ');
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final all = await DatabaseHelper.instance.getPayments(widget.lease.id!);
+    all.sort(
+      (a, b) =>
+          (DateTime.tryParse(b.paymentDate) ?? DateTime(1970)).compareTo(
+            DateTime.tryParse(a.paymentDate) ?? DateTime(1970),
+          ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _payments = all;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final money = NumberFormat.currency(
+      symbol: widget.currencySymbol,
+      decimalDigits: 0,
+    );
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: Text(
+          widget.lease.propertyName,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1A1A1A),
+          ),
+        ),
+        leading: GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: const Icon(Icons.arrow_back_ios_new_rounded,
+              size: 18, color: Color(0xFF1A1A1A)),
+        ),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _payments.isEmpty
+              ? const Center(child: Text('No payments logged yet'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _payments.length,
+                  itemBuilder: (context, index) {
+                    final p = _payments[index];
+                    final d = DateTime.tryParse(p.paymentDate);
+                    final date = d == null
+                        ? p.paymentDate
+                        : DateFormat('d MMM yyyy').format(d);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(16),
+                      decoration: premiumCardDecoration(),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  date,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: Color(0xFF1A1A1A),
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  _formatPaymentMethod(p.paymentMethod),
+                                  style: const TextStyle(
+                                    color: Color(0xFF8A8A8A),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            money.format(p.amount),
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1A1A1A),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
