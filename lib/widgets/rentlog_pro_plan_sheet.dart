@@ -85,8 +85,23 @@ class _RentlogProPlanSheetState extends State<RentlogProPlanSheet> {
       }
     } catch (_) {}
 
-    // Pass 2: direct product fetch (Android fallback for unconfigured offerings)
+    // Pass 2: direct product fetch
     if (monthly == null || yearly == null) {
+      try {
+        final products = await Purchases.getProducts(
+          [_monthlyProductId, _yearlyProductId],
+        );
+        for (final p in products) {
+          if (p.identifier == _monthlyProductId) monthly ??= p;
+          if (p.identifier == _yearlyProductId) yearly ??= p;
+        }
+      } catch (_) {}
+    }
+
+    // Pass 3: retry after delay if still empty
+    if (monthly == null || yearly == null) {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
       try {
         final products = await Purchases.getProducts(
           [_monthlyProductId, _yearlyProductId],
